@@ -12,6 +12,8 @@ const state = {
   editingRuleId: '',
   editingFileId: '',
   lastScan: null,
+  lastScanBody: null,
+  scanView: 'hits',
 };
 
 const el = (id) => document.getElementById(id);
@@ -350,7 +352,7 @@ async function submitFile(event) {
   }
 }
 
-// 扫一遍，把概要与命中清单都画出来
+// 扫一遍，把概要与命中清单都画出来；记住这次的范围，忽略或恢复之后按原范围重扫
 async function runScan() {
   clearNotice();
   const body = {
@@ -360,11 +362,38 @@ async function runScan() {
   };
   try {
     const result = await request('/api/scan', { method: 'POST', body: JSON.stringify(body) });
+    state.lastScanBody = body;
     state.lastScan = result;
     renderScan(result);
   } catch (err) {
     notify(err.message, 'error');
   }
+}
+
+// 忽略或恢复之后按上次扫描的范围重扫一遍，两套数字一起刷新
+async function rescan() {
+  if (!state.lastScanBody) return;
+  try {
+    const result = await request('/api/scan', { method: 'POST', body: JSON.stringify(state.lastScanBody) });
+    state.lastScan = result;
+    renderScan(result);
+  } catch (err) {
+    notify(err.message, 'error');
+  }
+}
+
+function setScanView(view) {
+  state.scanView = view;
+  el('scan-view-hits').classList.toggle('active', view === 'hits');
+  el('scan-view-locations').classList.toggle('active', view === 'locations');
+  el('hits-view').classList.toggle('hidden', view !== 'hits');
+  el('locations-view').classList.toggle('hidden', view !== 'locations');
+}
+
+// 一条汇总数怎么写：有忽略时把有效与忽略拆开，没忽略时只写总数
+function countText(total, effective, ignored, unit) {
+  if (ignored > 0) return `${total} ${unit}（有效 ${effective}、忽略 ${ignored}）`;
+  return `${total} ${unit}`;
 }
 
 function renderScan(result) {
@@ -379,32 +408,76 @@ function renderScan(result) {
     warningBox.textContent = '';
   }
 
+  const summary = result.summary;
+  const loc = summary.locations;
   const summaryBox = el('scan-summary');
-  const levelText = Object.keys(result.summary.byLevel)
-    .map((key) => `${key} ${result.summary.byLevel[key]} 条`)
+  const maxText = loc.maxRules > 0
+    ? `；同一处最多同时被 ${loc.maxRules} 条规则抓到（${loc.maxLocations.map((item) => `${item.path} 第 ${item.lineNo} 行`).join('、')}）`
+    : '';
+  const levelText = Object.keys(summary.byLevel)
+    .map((key) => `${key} ${countText(summary.byLevel[key].total, summary.byLevel[key].effective, summary.byLevel[key].ignored, '条')}`)
     .join('　');
-  const ruleText = result.summary.byRule
-    .map((item) => `${item.code} ${item.count} 条`)
+  const locationLevelText = Object.keys(loc.byLevel)
+    .map((key) => `${key} ${loc.byLevel[key]} 处`)
+    .join('　');
+  const ruleText = summary.byRule
+    .map((item) => `${item.code} ${countText(item.count, item.effective, item.ignored, '条')}`)
     .join('　') || '没有规则命中';
-  const fileText = result.summary.byFile
-    .map((item) => `${item.path} ${item.count} 条`)
+  const fileText = summary.byFile
+    .map((item) => `${item.path} ${countText(item.count, item.effective, item.ignored, '条')}`)
     .join('　') || '没有文件命中';
+
+  // 印证：按处合计从按处清单重新加一遍，与按条口径的总数并排摆出来
+  const checkTotal = result.locations.reduce((sum, item) => sum + item.total, 0);
+  const checkEffective = result.locations.reduce((sum, item) => sum + item.effective, 0);
+  const checkIgnored = result.locations.reduce((sum, item) => sum + item.ignored, 0);
+
+  const locationStateText = loc.total > 0
+    ? `（其中整处忽略 ${loc.fullyIgnored} 处、部分忽略 ${loc.partial} 处）`
+    : '';
   summaryBox.innerHTML = `
-    <div class="summary-line"><strong>一共命中 ${result.summary.total} 条</strong>　${escapeHtml(levelText)}</div>
+    <div class="summary-line"><strong>一共命中 ${countText(summary.total, summary.effective, summary.ignored, '条')}，落在 ${loc.total} 处${locationStateText}</strong>${escapeHtml(maxText)}</div>
+    <div class="summary-line">按级别：${escapeHtml(levelText)}</div>
+    <div class="summary-line">按处级别：${escapeHtml(locationLevelText)}　<span class="basis">一处的整体级别按有效条目取最重一级（错误 &gt; 警告 &gt; 提示），整处忽略时按全部条目取最重</span></div>
     <div class="summary-line">按规则：${escapeHtml(ruleText)}</div>
-    <div class="summary-line">按文件：${escapeHtml(fileText)}</div>`;
+    <div class="summary-line">按文件：${escapeHtml(fileText)}</div>
+    <div class="summary-line check-line">印证：按条 ${summary.total} 条 ＝ 按处 ${loc.total} 处合计 ${checkTotal} 条；有效 ${summary.effective} 条 ＝ 按处有效合计 ${checkEffective} 条；忽略 ${summary.ignored} 条 ＝ 按处忽略合计 ${checkIgnored} 条</div>`;
   summaryBox.classList.remove('hidden');
 
   const body = el('hit-body');
-  body.innerHTML = result.hits.map((hit) => `<tr>
+  body.innerHTML = result.hits.map((hit) => `<tr class="${hit.ignored ? 'row-ignored' : ''}">
       <td class="mono">${escapeHtml(hit.code)}</td>
       <td><span class="tag ${levelClass(hit.level)}">${escapeHtml(hit.level)}</span></td>
       <td>${escapeHtml(hit.ruleName)}</td>
       <td class="mono">${escapeHtml(hit.path)}</td>
       <td class="mono">${hit.lineNo}</td>
       <td class="mono line-cell">${escapeHtml(hit.lineText)}</td>
+      <td>${hit.ignored
+        ? `<span class="tag st-ignored" title="${escapeHtml(hit.ignoredBy ? `由 ${hit.ignoredBy} 标记` : '已标记')}${hit.ignoredAt ? `，${formatTime(hit.ignoredAt)}` : ''}">已忽略</span>`
+        : '<span class="tag st-ok">有效</span>'}</td>
+      <td class="actions">${hit.ignored
+        ? `<button type="button" class="link" data-hit-unignore="${escapeHtml(hit.ruleId)}|${escapeHtml(hit.fileId)}|${hit.lineNo}">恢复</button>`
+        : `<button type="button" class="link" data-hit-ignore="${escapeHtml(hit.ruleId)}|${escapeHtml(hit.fileId)}|${hit.lineNo}">忽略</button>`}</td>
     </tr>`).join('');
   el('hit-empty').classList.toggle('hidden', result.hits.length > 0);
+
+  const locationBody = el('location-body');
+  locationBody.innerHTML = result.locations.map((location) => `<tr class="${location.effective === 0 ? 'row-ignored' : ''}">
+      <td class="mono">${escapeHtml(location.path)}</td>
+      <td class="mono">${location.lineNo}</td>
+      <td class="mono line-cell">${escapeHtml(location.lineText)}</td>
+      <td class="mono">有效 ${location.effective} / 共 ${location.total} 条</td>
+      <td class="entries-cell">${location.entries.map((entry) => `<span class="entry ${entry.ignored ? 'entry-ignored' : ''}" title="${escapeHtml(entry.ruleName)}${entry.ignored ? '（已忽略）' : ''}">${escapeHtml(entry.code)}·${escapeHtml(entry.level)}</span>`).join(' ')}</td>
+      <td title="${escapeHtml(location.levelBasis)}">
+        <span class="tag ${levelClass(location.level)}">${escapeHtml(location.level)}</span>
+        ${location.levelMixed ? `<div class="basis">${escapeHtml(location.levelBasis)}</div>` : ''}
+      </td>
+      <td><span class="tag ${location.effective === 0 ? 'st-ignored' : (location.ignored > 0 ? 'st-partial' : 'st-ok')}">${escapeHtml(location.status)}</span></td>
+    </tr>`).join('');
+  el('location-empty').classList.toggle('hidden', result.locations.length > 0);
+
+  el('scan-views').classList.remove('hidden');
+  setScanView(state.scanView);
 }
 
 // 列表上的操作用事件委托统一处理，列表重绘之后不需要重新绑定
@@ -463,6 +536,39 @@ document.addEventListener('click', async (event) => {
     } catch (err) {
       notify(err.message, 'error');
     }
+    return;
+  }
+
+  // 忽略与恢复都按（规则、文件、行号）认键，操作完按上次扫描的范围重扫一遍
+  if (node.dataset.hitIgnore) {
+    clearNotice();
+    const [ruleId, fileId, lineNo] = node.dataset.hitIgnore.split('|');
+    try {
+      await request('/api/hits/ignore', {
+        method: 'POST',
+        body: JSON.stringify({ ruleId, fileId, lineNo: Number(lineNo), operator: currentOperator() }),
+      });
+      notify('这条命中已忽略', 'ok');
+      await rescan();
+    } catch (err) {
+      notify(err.message, 'error');
+    }
+    return;
+  }
+
+  if (node.dataset.hitUnignore) {
+    clearNotice();
+    const [ruleId, fileId, lineNo] = node.dataset.hitUnignore.split('|');
+    try {
+      await request('/api/hits/unignore', {
+        method: 'POST',
+        body: JSON.stringify({ ruleId, fileId, lineNo: Number(lineNo) }),
+      });
+      notify('这条命中已恢复', 'ok');
+      await rescan();
+    } catch (err) {
+      notify(err.message, 'error');
+    }
   }
 });
 
@@ -505,6 +611,8 @@ el('file-filter-reset').addEventListener('click', () => {
   loadFiles().catch((err) => notify(err.message, 'error'));
 });
 el('scan-run').addEventListener('click', runScan);
+el('scan-view-hits').addEventListener('click', () => setScanView('hits'));
+el('scan-view-locations').addEventListener('click', () => setScanView('locations'));
 el('rule-filter-level').addEventListener('change', () => {
   loadRules().catch((err) => notify(err.message, 'error'));
 });

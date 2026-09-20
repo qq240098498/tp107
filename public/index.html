@@ -139,7 +139,11 @@
       <p class="scan-meta" id="scan-meta">还没有扫过，点右上角扫一遍</p>
       <p class="scan-warning hidden" id="scan-warning"></p>
       <div class="summary hidden" id="scan-summary"></div>
-      <div class="table-wrap">
+      <div class="view-tabs hidden" id="scan-views">
+        <button type="button" id="scan-view-hits" class="tab active">按条看</button>
+        <button type="button" id="scan-view-locations" class="tab">按处看</button>
+      </div>
+      <div class="table-wrap" id="hits-view">
         <table class="grid">
           <thead>
             <tr>
@@ -149,12 +153,31 @@
               <th>文件</th>
               <th>行号</th>
               <th>那一行的内容</th>
+              <th>状态</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody id="hit-body"></tbody>
         </table>
+        <p class="empty-tip hidden" id="hit-empty">这一轮没有命中</p>
       </div>
-      <p class="empty-tip hidden" id="hit-empty">这一轮没有命中</p>
+      <div class="table-wrap hidden" id="locations-view">
+        <table class="grid">
+          <thead>
+            <tr>
+              <th>文件</th>
+              <th>行号</th>
+              <th>那一行的内容</th>
+              <th>命中（有效/共）</th>
+              <th>参与规则</th>
+              <th>整体级别</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody id="location-body"></tbody>
+        </table>
+        <p class="empty-tip hidden" id="location-empty">这一轮没有命中</p>
+      </div>
     </section>
   </main>
 

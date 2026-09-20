@@ -335,10 +335,29 @@ function normalizeFile(item, fallbackIndex) {
   };
 }
 
+// 把单条忽略记录整理成固定结构，规则或文件已经不在、行号不是正整数的一律丢掉
+function normalizeIgnore(item, fallbackIndex, rules, files) {
+  const source = item && typeof item === 'object' ? item : {};
+  const ruleId = typeof source.ruleId === 'string' ? source.ruleId : '';
+  const fileId = typeof source.fileId === 'string' ? source.fileId : '';
+  const lineNo = Number.isInteger(source.lineNo) ? source.lineNo : 0;
+  if (!ruleId || !fileId || lineNo < 1) return null;
+  if (!rules.some((rule) => rule.id === ruleId)) return null;
+  if (!files.some((file) => file.id === fileId)) return null;
+  return {
+    id: typeof source.id === 'string' && source.id ? source.id : `ignore-restored-${fallbackIndex + 1}`,
+    ruleId,
+    fileId,
+    lineNo,
+    ignoredBy: typeof source.ignoredBy === 'string' ? source.ignoredBy : '',
+    ignoredAt: typeof source.ignoredAt === 'string' && source.ignoredAt ? source.ignoredAt : new Date().toISOString(),
+  };
+}
+
 // 整份数据保证规则与文件结构一致，缺编号、缺名称、缺路径的条目一律丢掉
 function normalize(raw) {
   const source = raw && typeof raw === 'object' ? raw : {};
-  const seed = { rules: seedRules(), files: seedFiles() };
+  const seed = { rules: seedRules(), files: seedFiles(), ignores: [] };
 
   const rawRules = Array.isArray(source.rules) ? source.rules : seed.rules;
   const seenRuleIds = new Set();
@@ -368,7 +387,20 @@ function normalize(raw) {
     files.push(file);
   });
 
-  return { rules, files };
+  // 忽略记录按（规则、文件、行号）认键，规则或文件已经不在的记录一并清掉
+  const rawIgnores = Array.isArray(source.ignores) ? source.ignores : seed.ignores;
+  const seenIgnoreKeys = new Set();
+  const ignores = [];
+  rawIgnores.forEach((item, index) => {
+    const ignore = normalizeIgnore(item, index, rules, files);
+    if (!ignore) return;
+    const key = `${ignore.ruleId}|${ignore.fileId}|${ignore.lineNo}`;
+    if (seenIgnoreKeys.has(key)) return;
+    seenIgnoreKeys.add(key);
+    ignores.push(ignore);
+  });
+
+  return { rules, files, ignores };
 }
 
 // 读取数据文件：文件缺失或内容损坏时回落到初始数据并立刻补写
@@ -377,7 +409,7 @@ function load() {
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
     return normalize(JSON.parse(raw));
   } catch (err) {
-    const data = { rules: seedRules(), files: seedFiles() };
+    const data = { rules: seedRules(), files: seedFiles(), ignores: [] };
     save(data);
     return data;
   }
@@ -399,6 +431,7 @@ module.exports = {
   normalize,
   normalizeRule,
   normalizeFile,
+  normalizeIgnore,
   LEVELS,
   STATUSES,
   FILE_TYPES,

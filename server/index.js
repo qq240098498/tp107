@@ -107,6 +107,23 @@ app.post('/api/scan', (req, res) => {
   }
 });
 
+// 忽略与恢复都按（规则、文件、行号）认键，重复操作不会记两次
+app.post('/api/hits/ignore', (req, res) => {
+  try {
+    res.json(api.ignoreHit(req.body));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+app.post('/api/hits/unignore', (req, res) => {
+  try {
+    res.json(api.unignoreHit(req.body));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 // 未匹配到的接口路径统一返回说明，避免前端拿到一串页面内容
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: { code: 'API_NOT_FOUND', message: '接口不存在', field: '' } });
