@@ -383,3 +383,124 @@ label.full input {
   display: flex;
   gap: 10px;
 }
+
+/* 按条 / 按处两套视图的切换 */
+.view-toggle {
+  display: inline-flex;
+  gap: 0;
+}
+
+.view-toggle button {
+  border-radius: 0;
+}
+
+.view-toggle button:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.view-toggle button:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.view-toggle button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* 两套口径并排 */
+.summary-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.summary-card {
+  flex: 1 1 360px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.summary-line.muted,
+.muted {
+  color: var(--ink-soft);
+}
+
+.reconcile {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  align-items: center;
+}
+
+.check-item.ok {
+  color: var(--ok);
+}
+
+.check-item.bad {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* 按处视图：同一行上多条规则用 chip 逐条列清 */
+.chip-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rule-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f4f8ff;
+  white-space: nowrap;
+}
+
+.rule-chip.is-off {
+  background: #f3f5f7;
+  border-style: dashed;
+  opacity: 0.75;
+}
+
+.chip-state {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.chip-state.on {
+  color: var(--ok);
+}
+
+.chip-state.off {
+  color: var(--danger);
+}
+
+tr.row-off td {
+  background: #fafbfc;
+  color: var(--ink-soft);
+}
+
+/* 按处表格里的说明文字要能换行，不能被通用的省略号规则截掉 */
+.place-grid td {
+  max-width: 340px;
+  white-space: normal;
+  vertical-align: top;
+}
+
+.place-grid td.line-cell {
+  max-width: 300px;
+}
+
+.place-grid .chip-box,
+.place-grid td .muted {
+  margin-top: 4px;
+}

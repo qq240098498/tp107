@@ -168,7 +168,7 @@
       "id": "file-2003",
       "path": "src/server/user.js",
       "type": "js",
-      "content": "const db = require(\"./db\");\n\nconst conn = \"postgres://app:app@127.0.0.1:5432/member\";\nconst password = \"app-2026\";\n\nfunction findUser(id) {\n  try {\n    return db.query(\"select * from users where id = $1\", [id]);\n  } catch (e) {}\n}\n\nmodule.exports = { findUser, conn, password };",
+      "content": "const db = require(\"./db\");\n\nconst conn = \"postgres://app:app@127.0.0.1:5432/member\";\n// TODO 临时口令，后面要换掉：password = \"app-2026\"\n\nfunction findUser(id) {\n  try {\n    return db.query(\"select * from users where id = $1\", [id]);\n  } catch (e) {}\n}\n\nmodule.exports = { findUser, conn };",
       "note": "账号查询",
       "createdAt": "2026-09-02T03:00:00.000Z",
       "updatedAt": "2026-09-02T03:00:00.000Z"
@@ -204,7 +204,7 @@
       "id": "file-2007",
       "path": "src/web/legacy/old-util.js",
       "type": "js",
-      "content": "// FIXME 这个文件准备整体删掉，暂时先用着\nfunction pick(source, keys) {\n  var out = {};\n  keys.forEach(function (key) {\n    out[key] = source[key];\n  });\n  console.log(\"pick\", keys.length);\n  return out;\n}\n\nfunction run(expr) {\n  return eval(expr);\n}\n\nmodule.exports = { pick, run };",
+      "content": "// FIXME 这个文件准备整体删掉，暂时先用着\nfunction pick(source, keys) {\n  var out = {};\n  keys.forEach(function (key) {\n    out[key] = source[key];\n  });\n  var logged = console.log(\"pick\", keys.length); // TODO 临时日志先留着\n  return out;\n}\n\nfunction run(expr) {\n  return eval(expr);\n}\n\nmodule.exports = { pick, run };",
       "note": "历史遗留工具",
       "createdAt": "2026-09-02T03:00:00.000Z",
       "updatedAt": "2026-09-02T03:00:00.000Z"
@@ -213,7 +213,7 @@
       "id": "file-2008",
       "path": "src/config/default.js",
       "type": "js",
-      "content": "const DEBUG = true;\n\nconst config = {\n  port: Number(process.env[\"PORT\"] || 4000),\n  password = \"member-2026\",\n  redis: \"redis://127.0.0.1:6379/0\",\n};\n\nmodule.exports = config;",
+      "content": "const DEBUG = true;\n\nconst config = {\n  port: Number(process.env[\"PORT\"] || 4000),\n  // TODO 上线前要改：password = \"member-2026\",\n  redis: \"redis://127.0.0.1:6379/0\",\n};\n\nmodule.exports = config;",
       "note": "默认配置，里面有调试开关",
       "createdAt": "2026-09-02T03:00:00.000Z",
       "updatedAt": "2026-09-02T03:00:00.000Z"
@@ -253,6 +253,38 @@
       "note": "部署描述",
       "createdAt": "2026-09-02T03:00:00.000Z",
       "updatedAt": "2026-09-02T03:00:00.000Z"
+    }
+  ],
+  "ignores": [
+    {
+      "id": "ignore-3001",
+      "ruleId": "rule-1005",
+      "fileId": "file-2003",
+      "lineNo": 4,
+      "reason": "口令已经迁到配置中心，这行只是待删的旧注释",
+      "operator": "王芳",
+      "createdAt": "2026-09-02T04:00:00.000Z",
+      "updatedAt": "2026-09-02T04:00:00.000Z"
+    },
+    {
+      "id": "ignore-3002",
+      "ruleId": "rule-1001",
+      "fileId": "file-2002",
+      "lineNo": 5,
+      "reason": "本地排查用的日志，跟着脚本一起发布但不影响线上",
+      "operator": "李峥",
+      "createdAt": "2026-09-02T04:00:00.000Z",
+      "updatedAt": "2026-09-02T04:00:00.000Z"
+    },
+    {
+      "id": "ignore-3003",
+      "ruleId": "rule-1003",
+      "fileId": "file-2007",
+      "lineNo": 7,
+      "reason": "待办已经建了跟进单 OPS-2207",
+      "operator": "王芳",
+      "createdAt": "2026-09-02T04:00:00.000Z",
+      "updatedAt": "2026-09-02T04:00:00.000Z"
     }
   ]
 }

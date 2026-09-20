@@ -12,6 +12,8 @@ const state = {
   editingRuleId: '',
   editingFileId: '',
   lastScan: null,
+  scanView: 'hit',
+  ignores: [],
 };
 
 const el = (id) => document.getElementById(id);
@@ -86,6 +88,32 @@ function levelClass(level) {
   if (level === '错误') return 'lv-error';
   if (level === '警告') return 'lv-warn';
   return 'lv-hint';
+}
+
+function levelCountsText(counts, activeCounts) {
+  return Object.keys(counts)
+    .map((key) => {
+      const active = activeCounts ? `（有效 ${activeCounts[key]}）` : '';
+      return `${key} ${counts[key]}${active}`;
+    })
+    .join('　');
+}
+
+// 一处里参与抓到的规则逐条列出：编码、级别，以及这一条是否已被忽略。
+// 忽略/取消按钮只带规则编码，文件与行号从所在处的行容器上取
+function ruleChips(rules) {
+  return rules.map((rule) => {
+    const stateHtml = rule.ignored
+      ? `<span class="chip-state off">已忽略${rule.ignoreReason ? `：${escapeHtml(rule.ignoreReason)}` : ''}</span>
+         <button type="button" class="link" data-ignore-cancel="${escapeHtml(rule.ignoreId)}">取消忽略</button>`
+      : `<span class="chip-state on">有效</span>
+         <button type="button" class="link" data-ignore-add="${escapeHtml(rule.ruleId)}">忽略这条</button>`;
+    return `<span class="rule-chip ${rule.ignored ? 'is-off' : ''}">
+        <span class="mono">${escapeHtml(rule.code)}</span>
+        <span class="tag ${levelClass(rule.level)}">${escapeHtml(rule.level)}</span>
+        ${stateHtml}
+      </span>`;
+  }).join('');
 }
 
 const OPERATOR_KEY = 'check-hits-operator';
@@ -379,38 +407,216 @@ function renderScan(result) {
     warningBox.textContent = '';
   }
 
-  const summaryBox = el('scan-summary');
-  const levelText = Object.keys(result.summary.byLevel)
-    .map((key) => `${key} ${result.summary.byLevel[key]} 条`)
-    .join('　');
-  const ruleText = result.summary.byRule
-    .map((item) => `${item.code} ${item.count} 条`)
-    .join('　') || '没有规则命中';
-  const fileText = result.summary.byFile
-    .map((item) => `${item.path} ${item.count} 条`)
-    .join('　') || '没有文件命中';
-  summaryBox.innerHTML = `
-    <div class="summary-line"><strong>一共命中 ${result.summary.total} 条</strong>　${escapeHtml(levelText)}</div>
-    <div class="summary-line">按规则：${escapeHtml(ruleText)}</div>
-    <div class="summary-line">按文件：${escapeHtml(fileText)}</div>`;
-  summaryBox.classList.remove('hidden');
+  renderScanSummary(result);
+  renderScanTable(result);
+}
 
-  const body = el('hit-body');
-  body.innerHTML = result.hits.map((hit) => `<tr>
-      <td class="mono">${escapeHtml(hit.code)}</td>
-      <td><span class="tag ${levelClass(hit.level)}">${escapeHtml(hit.level)}</span></td>
-      <td>${escapeHtml(hit.ruleName)}</td>
-      <td class="mono">${escapeHtml(hit.path)}</td>
-      <td class="mono">${hit.lineNo}</td>
-      <td class="mono line-cell">${escapeHtml(hit.lineText)}</td>
+// 两套口径并排给数：按条一条规则一行算一条；按处同一文件同一行算一处
+function renderScanSummary(result) {
+  const s = result.summary;
+  const bh = s.byHit;
+  const bp = s.byPlace;
+  const maxAt = bp.maxRulesPlaces || [];
+  const maxText = maxAt.map((item) => `${item.path}:${item.lineNo}`).join('、');
+  const fanText = Object.keys(bp.fanOut).sort((a, b) => Number(a) - Number(b))
+    .map((key) => `${key} 条规则 × ${bp.fanOut[key]} 处`).join('　');
+
+  const check = s.check;
+  const checkRows = [
+    ['条总数 = 各处条数之和', check.hitTotal, check.placeHitSum],
+    ['有效条 = 各处剩余有效之和', check.activeHits, check.placeActiveSum],
+    ['已忽略条 = 各处已忽略之和', check.ignoredHits, check.placeIgnoredSum],
+  ];
+  const checkHtml = checkRows.map(([label, left, right]) => {
+    const ok = left === right;
+    return `<span class="check-item ${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'} ${escapeHtml(label)}：${left} = ${right}</span>`;
+  }).join('');
+
+  el('scan-summary').innerHTML = `
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="summary-line"><strong>按条：共 ${bh.total} 条</strong>（有效 ${bh.active} 条、已忽略 ${bh.ignored} 条）</div>
+        <div class="summary-line">按级别：${escapeHtml(levelCountsText(bh.byLevel, bh.activeByLevel))}</div>
+        <div class="summary-line muted">括号里是剔除忽略后的有效条数</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-line"><strong>按处：共 ${bp.total} 处</strong>（有效 ${bp.active} 处、整处忽略 ${bp.fullyIgnored} 处、部分忽略 ${bp.partiallyIgnored} 处）</div>
+        <div class="summary-line">处的级别：${escapeHtml(levelCountsText(bp.byLevel, bp.activeByLevel))}</div>
+        <div class="summary-line">同一处最多被 <strong>${bp.maxRulesAtPlace}</strong> 条规则同时抓到${maxText ? `（${escapeHtml(maxText)}）` : ''}；分布：${escapeHtml(fanText) || '—'}</div>
+        <div class="summary-line muted">一处的整体级别按参与规则里最高的级别对待；有效级别指剔除被忽略条目后的最高级别</div>
+      </div>
+    </div>
+    <div class="summary-line reconcile ${s.reconciled ? 'ok' : 'bad'}">
+      <strong>两套数字勾稽：</strong>${checkHtml}
+      ${s.reconciled ? '' : '　<strong>这一轮两套总数对不上，请检查</strong>'}
+    </div>`;
+  el('scan-summary').classList.remove('hidden');
+}
+
+function renderScanTable(result) {
+  const box = el('hit-table-box');
+  const byPlace = state.scanView === 'place';
+  el('view-by-hit').classList.toggle('active', !byPlace);
+  el('view-by-place').classList.toggle('active', byPlace);
+
+  if (!byPlace) {
+    box.innerHTML = `<table class="grid">
+      <thead>
+        <tr>
+          <th>规则编码</th>
+          <th>级别</th>
+          <th>规则名称</th>
+          <th>文件</th>
+          <th>行号</th>
+          <th>那一行的内容</th>
+          <th>状态与操作</th>
+        </tr>
+      </thead>
+      <tbody>${result.hits.map((hit) => `<tr class="${hit.ignored ? 'row-off' : ''}" data-file-id="${escapeHtml(hit.fileId)}" data-line-no="${hit.lineNo}">
+          <td class="mono">${escapeHtml(hit.code)}</td>
+          <td><span class="tag ${levelClass(hit.level)}">${escapeHtml(hit.level)}</span></td>
+          <td>${escapeHtml(hit.ruleName)}</td>
+          <td class="mono">${escapeHtml(hit.path)}</td>
+          <td class="mono">${hit.lineNo}</td>
+          <td class="mono line-cell">${escapeHtml(hit.lineText)}</td>
+          <td class="actions">${hit.ignored
+            ? `已忽略${hit.ignoreReason ? `：${escapeHtml(hit.ignoreReason)}` : ''}
+               <button type="button" class="link" data-ignore-cancel="${escapeHtml(hit.ignoreId)}">取消忽略</button>`
+            : `<button type="button" class="link" data-ignore-add="${escapeHtml(hit.ruleId)}">忽略这条</button>`}</td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+    el('hit-empty').classList.toggle('hidden', result.hits.length > 0);
+    return;
+  }
+
+  box.innerHTML = `<table class="grid place-grid">
+    <thead>
+      <tr>
+        <th>文件</th>
+        <th>行号</th>
+        <th>那一行的内容</th>
+        <th>参与抓到的规则（编码与级别）</th>
+        <th>条数（剩余有效）</th>
+        <th>这处整体级别与依据</th>
+      </tr>
+    </thead>
+    <tbody>${result.places.map((place) => {
+      const basis = place.levelMixed
+        ? `参与规则级别不一致（${escapeHtml(place.distinctLevels.join('、'))}），按最高的 <strong>${escapeHtml(place.level)}</strong> 对待，依据：${escapeHtml(place.levelCodes.join('、'))}`
+        : `参与规则同为 <strong>${escapeHtml(place.level)}</strong>，这处整体按${escapeHtml(place.level)}对待`;
+      const activeBasis = place.fullyIgnored
+        ? '<span class="chip-state off">这处条目已全部忽略，不计有效</span>'
+        : `剔除忽略后还剩 <strong>${place.activeCount}</strong> 条有效，有效级别按 <strong>${escapeHtml(place.activeLevel)}</strong>${place.activeLevelCodes.length ? `（${escapeHtml(place.activeLevelCodes.join('、'))}）` : ''}`;
+      return `<tr class="${place.fullyIgnored ? 'row-off' : ''}" data-file-id="${escapeHtml(place.fileId)}" data-line-no="${place.lineNo}">
+        <td class="mono">${escapeHtml(place.path)}</td>
+        <td class="mono">${place.lineNo}</td>
+        <td class="mono line-cell">${escapeHtml(place.lineText)}</td>
+        <td><div class="chip-box">${ruleChips(place.rules)}</div></td>
+        <td class="mono">${place.hitCount} 条<br><span class="${place.activeCount ? '' : 'chip-state off'}">有效 ${place.activeCount}　忽略 ${place.ignoredCount}</span></td>
+        <td><div>${basis}</div><div class="muted">${activeBasis}</div></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+  el('hit-empty').classList.toggle('hidden', result.places.length > 0);
+}
+
+// 登记一条忽略：忽略粒度是一条命中（某规则在某文件某一行）
+async function addIgnore(ruleId, fileId, lineNo) {
+  const operator = currentOperator();
+  if (!operator) {
+    notify('请先在页面右上角填上当前操作者，再登记忽略', 'error');
+    el('operator').focus();
+    return;
+  }
+  const reason = window.prompt('写清忽略这条命中的原因（同一行上别的规则不受影响）');
+  if (reason === null) return;
+  if (!reason.trim()) {
+    notify('忽略原因不能为空', 'error');
+    return;
+  }
+  try {
+    await request('/api/ignores', {
+      method: 'POST',
+      body: JSON.stringify({ ruleId, fileId, lineNo: Number(lineNo), reason, operator }),
+    });
+    notify('已登记忽略，这一轮结果已按新口径重算', 'ok');
+    await Promise.all([loadIgnores(), rerunLastScan()]);
+  } catch (err) {
+    notify(err.message, 'error');
+  }
+}
+
+async function cancelIgnore(ignoreId) {
+  try {
+    await request(`/api/ignores/${encodeURIComponent(ignoreId)}`, { method: 'DELETE' });
+    notify('已取消忽略，这条命中重新计入', 'ok');
+    await Promise.all([loadIgnores(), rerunLastScan()]);
+  } catch (err) {
+    notify(err.message, 'error');
+  }
+}
+
+// 登记或取消忽略后沿用上次的范围条件重扫，保证两套数字还是同一轮结果
+async function rerunLastScan() {
+  const body = {
+    ruleId: el('scan-rule').value,
+    fileId: el('scan-file').value,
+    level: el('scan-level').value,
+  };
+  try {
+    const result = await request('/api/scan', { method: 'POST', body: JSON.stringify(body) });
+    state.lastScan = result;
+    renderScan(result);
+  } catch (err) {
+    notify(err.message, 'error');
+  }
+}
+
+async function loadIgnores() {
+  const payload = await request('/api/ignores');
+  state.ignores = payload.ignores || [];
+  renderIgnores();
+}
+
+function renderIgnores() {
+  const body = el('ignore-body');
+  body.innerHTML = state.ignores.map((item) => `<tr>
+      <td class="mono">${escapeHtml(item.code)}</td>
+      <td><span class="tag ${levelClass(item.level)}">${escapeHtml(item.level)}</span></td>
+      <td class="mono">${escapeHtml(item.path)}</td>
+      <td class="mono">${item.lineNo}</td>
+      <td class="mono line-cell">${escapeHtml(item.lineText)}</td>
+      <td class="note-cell">${escapeHtml(item.reason)}</td>
+      <td>${escapeHtml(item.operator)}</td>
+      <td class="mono">${escapeHtml(formatTime(item.createdAt))}</td>
+      <td class="actions"><button type="button" class="link danger" data-ignore-cancel="${escapeHtml(item.id)}">取消忽略</button></td>
     </tr>`).join('');
-  el('hit-empty').classList.toggle('hidden', result.hits.length > 0);
+  el('ignore-empty').classList.toggle('hidden', state.ignores.length > 0);
 }
 
 // 列表上的操作用事件委托统一处理，列表重绘之后不需要重新绑定
 document.addEventListener('click', async (event) => {
   const node = event.target.closest('button');
   if (!node) return;
+
+  if (node.dataset.ignoreAdd !== undefined) {
+    clearNotice();
+    const row = node.closest('tr');
+    const fileId = row ? row.dataset.fileId : '';
+    const lineNo = row ? row.dataset.lineNo : '';
+    if (!fileId || !lineNo) {
+      notify('找不到这条命中对应的文件与行号', 'error');
+      return;
+    }
+    await addIgnore(node.dataset.ignoreAdd, fileId, lineNo);
+    return;
+  }
+
+  if (node.dataset.ignoreCancel !== undefined) {
+    clearNotice();
+    await cancelIgnore(node.dataset.ignoreCancel);
+    return;
+  }
 
   if (node.dataset.ruleEdit) {
     clearNotice();
@@ -505,6 +711,18 @@ el('file-filter-reset').addEventListener('click', () => {
   loadFiles().catch((err) => notify(err.message, 'error'));
 });
 el('scan-run').addEventListener('click', runScan);
+el('view-by-hit').addEventListener('click', () => {
+  state.scanView = 'hit';
+  if (state.lastScan) renderScan(state.lastScan);
+});
+el('view-by-place').addEventListener('click', () => {
+  state.scanView = 'place';
+  if (state.lastScan) renderScan(state.lastScan);
+});
+el('ignore-refresh').addEventListener('click', () => {
+  clearNotice();
+  loadIgnores().catch((err) => notify(err.message, 'error'));
+});
 el('rule-filter-level').addEventListener('change', () => {
   loadRules().catch((err) => notify(err.message, 'error'));
 });
@@ -515,9 +733,10 @@ el('operator').addEventListener('change', () => {
   window.localStorage.setItem(OPERATOR_KEY, currentOperator());
 });
 
-// 页面打开时先把规则与文件都拉一遍，扫描的范围下拉依赖这两份清单
+// 页面打开时先把规则、文件与忽略清单都拉一遍，扫描的范围下拉依赖规则与文件两份清单
 restoreOperator();
 loadHealth();
 loadRules()
   .then(loadFiles)
+  .then(loadIgnores)
   .catch((err) => notify(err.message, 'error'));

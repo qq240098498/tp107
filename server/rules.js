@@ -160,6 +160,8 @@ function deleteRule(id) {
   const index = data.rules.findIndex((item) => item.id === id);
   if (index === -1) throw new ApiError(404, 'RULE_NOT_FOUND', '这条规则不存在或已被删除', '');
   const [removed] = data.rules.splice(index, 1);
+  // 规则没了，挂在它名下的忽略一并清掉，避免留下对不上规则的记录
+  data.ignores = data.ignores.filter((item) => item.ruleId !== removed.id);
   save(data);
   return { id: removed.id, code: removed.code, name: removed.name };
 }

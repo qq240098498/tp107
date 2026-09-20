@@ -134,27 +134,46 @@
           <select id="scan-file"><option value="">全部文件</option></select>
           <select id="scan-level"><option value="">全部级别</option></select>
           <button type="button" id="scan-run">按规则扫一遍</button>
+          <span class="view-toggle" id="scan-view-toggle">
+            <button type="button" id="view-by-hit" class="ghost active">按条看</button>
+            <button type="button" id="view-by-place" class="ghost">按处看</button>
+          </span>
         </div>
       </div>
       <p class="scan-meta" id="scan-meta">还没有扫过，点右上角扫一遍</p>
       <p class="scan-warning hidden" id="scan-warning"></p>
       <div class="summary hidden" id="scan-summary"></div>
+      <div class="table-wrap" id="hit-table-box"></div>
+      <p class="empty-tip hidden" id="hit-empty">这一轮没有命中</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>已忽略的命中</h2>
+        <div class="filters">
+          <button type="button" id="ignore-refresh" class="ghost">刷新</button>
+        </div>
+      </div>
+      <p class="scan-meta">忽略只挂在“某条规则在某个文件某一行”的一条命中上；同一行上别的规则不受影响。取消忽略后下一轮扫描自动重新计入。</p>
       <div class="table-wrap">
         <table class="grid">
           <thead>
             <tr>
               <th>规则编码</th>
               <th>级别</th>
-              <th>规则名称</th>
               <th>文件</th>
               <th>行号</th>
               <th>那一行的内容</th>
+              <th>忽略原因</th>
+              <th>操作者</th>
+              <th>登记时间</th>
+              <th>操作</th>
             </tr>
           </thead>
-          <tbody id="hit-body"></tbody>
+          <tbody id="ignore-body"></tbody>
         </table>
       </div>
-      <p class="empty-tip hidden" id="hit-empty">这一轮没有命中</p>
+      <p class="empty-tip hidden" id="ignore-empty">还没有登记过忽略</p>
     </section>
   </main>
 

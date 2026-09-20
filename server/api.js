@@ -2,6 +2,7 @@
 const { ApiError, pickText } = require('./errors');
 const rules = require('./rules');
 const files = require('./files');
+const ignores = require('./ignores');
 const { scan } = require('./scan');
 
 // 查询参数在页面与接口之间来回传的都是文本，这里统一去掉首尾空白并兜住空值
@@ -15,4 +16,5 @@ module.exports = {
   scan,
   ...rules,
   ...files,
+  ...ignores,
 };

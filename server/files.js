@@ -130,6 +130,8 @@ function deleteFile(id) {
   const index = data.files.findIndex((item) => item.id === id);
   if (index === -1) throw new ApiError(404, 'FILE_NOT_FOUND', '这个文件不存在或已被移出清单', '');
   const [removed] = data.files.splice(index, 1);
+  // 文件移出清单后，落在它身上的忽略没有了着落，一并清掉
+  data.ignores = data.ignores.filter((item) => item.fileId !== removed.id);
   save(data);
   return { id: removed.id, path: removed.path };
 }

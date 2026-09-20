@@ -14,6 +14,8 @@ const MAX_PATTERN_LENGTH = 60;
 const MAX_NOTE_LENGTH = 200;
 const MAX_PATH_LENGTH = 120;
 const MAX_CONTENT_LENGTH = 4000;
+const MAX_REASON_LENGTH = 200;
+const MAX_OPERATOR_LENGTH = 40;
 
 // 检查规则的初始数据。十二条规则里有两条是停用的，
 // 有一条启用的规则在现有文件里一条命中都没有，用来观察从未命中的规则
@@ -92,7 +94,7 @@ function seedFiles() {
         'const db = require("./db");',
         '',
         'const conn = "postgres://app:app@127.0.0.1:5432/member";',
-        'const password = "app-2026";',
+        '// TODO 临时口令，后面要换掉：password = "app-2026"',
         '',
         'function findUser(id) {',
         '  try {',
@@ -100,7 +102,7 @@ function seedFiles() {
         '  } catch (e) {}',
         '}',
         '',
-        'module.exports = { findUser, conn, password };',
+        'module.exports = { findUser, conn };',
       ].join('\n'),
       note: '账号查询',
       createdAt: at,
@@ -182,7 +184,7 @@ function seedFiles() {
         '  keys.forEach(function (key) {',
         '    out[key] = source[key];',
         '  });',
-        '  console.log("pick", keys.length);',
+        '  var logged = console.log("pick", keys.length); // TODO 临时日志先留着',
         '  return out;',
         '}',
         '',
@@ -205,7 +207,7 @@ function seedFiles() {
         '',
         'const config = {',
         '  port: Number(process.env["PORT"] || 4000),',
-        '  password = "member-2026",',
+        '  // TODO 上线前要改：password = "member-2026",',
         '  redis: "redis://127.0.0.1:6379/0",',
         '};',
         '',
@@ -295,6 +297,44 @@ function seedFiles() {
   ];
 }
 
+// 被忽略的命中。忽略只针对“某条规则在某个文件的某一行”这一条命中本身，
+// 不影响同一行上其它规则；里面特意放了同一行被多条规则抓到时只忽略其中一条的情况
+function seedIgnores() {
+  const at = '2026-09-02T04:00:00.000Z';
+  return [
+    {
+      id: 'ignore-3001',
+      ruleId: 'rule-1005',
+      fileId: 'file-2003',
+      lineNo: 4,
+      reason: '口令已经迁到配置中心，这行只是待删的旧注释',
+      operator: '王芳',
+      createdAt: at,
+      updatedAt: at,
+    },
+    {
+      id: 'ignore-3002',
+      ruleId: 'rule-1001',
+      fileId: 'file-2002',
+      lineNo: 5,
+      reason: '本地排查用的日志，跟着脚本一起发布但不影响线上',
+      operator: '李峥',
+      createdAt: at,
+      updatedAt: at,
+    },
+    {
+      id: 'ignore-3003',
+      ruleId: 'rule-1003',
+      fileId: 'file-2007',
+      lineNo: 7,
+      reason: '待办已经建了跟进单 OPS-2207',
+      operator: '王芳',
+      createdAt: at,
+      updatedAt: at,
+    },
+  ];
+}
+
 // 把单条规则整理成固定结构，级别与状态不认识的一律回到默认值
 function normalizeRule(item, fallbackIndex) {
   const source = item && typeof item === 'object' ? item : {};
@@ -335,10 +375,33 @@ function normalizeFile(item, fallbackIndex) {
   };
 }
 
+// 把单条忽略整理成固定结构：必须落到一条存在的规则与一个存在的文件的具体行上
+function normalizeIgnore(item, fallbackIndex, ruleIds, fileLineCounts) {
+  const source = item && typeof item === 'object' ? item : {};
+  const createdAt = typeof source.createdAt === 'string' && source.createdAt ? source.createdAt : new Date().toISOString();
+  const ruleId = typeof source.ruleId === 'string' ? source.ruleId.trim() : '';
+  const fileId = typeof source.fileId === 'string' ? source.fileId.trim() : '';
+  const lineNo = Number(source.lineNo);
+  if (!ruleIds.has(ruleId) || !fileLineCounts.has(fileId)) return null;
+  if (!Number.isInteger(lineNo) || lineNo < 1 || lineNo > fileLineCounts.get(fileId)) return null;
+  const reason = typeof source.reason === 'string' ? source.reason.slice(0, MAX_REASON_LENGTH) : '';
+  const operator = typeof source.operator === 'string' ? source.operator.slice(0, MAX_OPERATOR_LENGTH) : '';
+  return {
+    id: typeof source.id === 'string' && source.id ? source.id : `ignore-restored-${fallbackIndex + 1}`,
+    ruleId,
+    fileId,
+    lineNo,
+    reason,
+    operator,
+    createdAt,
+    updatedAt: typeof source.updatedAt === 'string' && source.updatedAt ? source.updatedAt : createdAt,
+  };
+}
+
 // 整份数据保证规则与文件结构一致，缺编号、缺名称、缺路径的条目一律丢掉
 function normalize(raw) {
   const source = raw && typeof raw === 'object' ? raw : {};
-  const seed = { rules: seedRules(), files: seedFiles() };
+  const seed = { rules: seedRules(), files: seedFiles(), ignores: seedIgnores() };
 
   const rawRules = Array.isArray(source.rules) ? source.rules : seed.rules;
   const seenRuleIds = new Set();
@@ -368,7 +431,23 @@ function normalize(raw) {
     files.push(file);
   });
 
-  return { rules, files };
+  const rawIgnores = Array.isArray(source.ignores) ? source.ignores : seed.ignores;
+  const ruleIds = new Set(rules.map((item) => item.id));
+  const fileLineCounts = new Map(files.map((item) => [item.id, item.content.split('\n').length]));
+  const seenIgnoreIds = new Set();
+  const seenIgnoreSpots = new Set();
+  const ignores = [];
+  rawIgnores.forEach((item, index) => {
+    const ignore = normalizeIgnore(item, index, ruleIds, fileLineCounts);
+    if (!ignore) return;
+    const spot = `${ignore.ruleId}\n${ignore.fileId}\n${ignore.lineNo}`;
+    if (seenIgnoreIds.has(ignore.id) || seenIgnoreSpots.has(spot)) return;
+    seenIgnoreIds.add(ignore.id);
+    seenIgnoreSpots.add(spot);
+    ignores.push(ignore);
+  });
+
+  return { rules, files, ignores };
 }
 
 // 读取数据文件：文件缺失或内容损坏时回落到初始数据并立刻补写
@@ -377,7 +456,7 @@ function load() {
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
     return normalize(JSON.parse(raw));
   } catch (err) {
-    const data = { rules: seedRules(), files: seedFiles() };
+    const data = { rules: seedRules(), files: seedFiles(), ignores: seedIgnores() };
     save(data);
     return data;
   }
@@ -396,9 +475,11 @@ module.exports = {
   save,
   seedRules,
   seedFiles,
+  seedIgnores,
   normalize,
   normalizeRule,
   normalizeFile,
+  normalizeIgnore,
   LEVELS,
   STATUSES,
   FILE_TYPES,
@@ -408,5 +489,7 @@ module.exports = {
   MAX_NOTE_LENGTH,
   MAX_PATH_LENGTH,
   MAX_CONTENT_LENGTH,
+  MAX_REASON_LENGTH,
+  MAX_OPERATOR_LENGTH,
   DATA_FILE,
 };
